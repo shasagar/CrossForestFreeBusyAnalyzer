@@ -233,6 +233,8 @@ If($DirectionOftheIssue -eq 'OnpremToEXO')
 
 If($directionOftheIssue -eq 'EXOToOnprem')
 {
+    Disconnect-ExchangeOnline -confirm:$false
+    New-LocalExchangeSession
     $onpremAppURI = (Get-FederationTrust).ApplicationURI
 #Onprem Mailbox calendar permission check
     $onpremMBX = Get-Mailbox $onpremRcpt
@@ -256,14 +258,16 @@ If($directionOftheIssue -eq 'EXOToOnprem')
 #IntraOrganization Connector [IOC] configuration check
     $primaryDomain = $onpremRcpt.split('@')[1]
     $exoIOC = Get-IntraOrganizationConnector | Where-Object {$_.TargetAddressDomains -eq $PrimaryDomain}
-    if($exoIOC.DiscoveryEndpoint -like '*msappproxy*')
+    
+    if($exoIOC.Enabled -eq $TRUE)
+    {
+        WriteLog -color cyan "IOC is enabled, performing OAUTH checks.."
+        if($exoIOC.DiscoveryEndpoint -like '*msappproxy*')
     {
         Writelog -color cyan "Hybrid Modern is configured with Hybrid Agent."
         Writelog -color cyan "Make sure External URL set on the Hybrid Agent configuration, is accessiable. Review article https://learn.microsoft.com/en-us/exchange/hybrid-deployment/hybrid-agent for more info on Hybrid Agent"
     }
-    if($exoIOC.Enabled -eq $TRUE)
-    {
-        WriteLog -color cyan "IOC is enabled, performing OAUTH checks.."
+        
         $oauthResult = Test-OAUTHConnectivity -Service AutoD -TargetUri $exoIOC.DiscoveryEndpoint -Mailbox $exoRcpt
         $oauthResult | Export-Clixml .\$FolderName\EXO_OAuthResult.xml
         if($oauthResult.ResultType -Like '*Fail*')
