@@ -1,36 +1,26 @@
-
-
 [CmdletBinding()]
-
 Param
 (
-	[string]$LogFile=".\$FolderName\FreeBusyAnalyzer.log",
-	[Switch]$NonInteractive
-   
+	[string]$logFile=".\$folderName\FreeBusyAnalyzer.log",
+	[Switch]$nonInteractive   
 )
-$Time = Get-Date -Format MMddyyyyhhmmss
-$FolderName = "LogFiles" + $Time
-New-Item -itemtype Directory -Path .\$FolderName
+$time = Get-Date -Format MMddyyyyhhmmss
+$folderName = "LogFiles" + $time
+New-Item -itemtype Directory -Path .\$folderName
 # Function to write activities in the log file
 Function WriteLog 
 {
-	Param ([string]$string, [String]$Color)
-	
+	Param ([string]$string, [String]$color)
 # Get the current date
 	[string]$date = Get-Date -Format G
-		
 # Write everything to the log file
-    
-	( "[" + $date + "] - " + $string) | Out-File -FilePath $LogFile -Append
-	
+	( "[" + $date + "] - " + $string) | Out-File -FilePath $logFile -Append
 # If NonInteractive true then supress host output
-	if (!($NonInteractive)){
+	if (!($nonInteractive)){
 		( "[" + $date + "] - " + $string) | Write-Host -f $Color
 	}
 }
-
 # Setup a new O365 Powershell Session
-
 Function New-LocalExchangeSession 
 {
     $Error.Clear()
@@ -44,21 +34,17 @@ Function New-LocalExchangeSession
             WriteLog -color Red "Error: Local Exchange Server session was unsuccessful, plese make sure provided creds or server name are accurate"
             EXIT
         }
-
     }
     Write-verbose "Testing for Active Directory PowerShell module"
-
         if (!(get-module ActiveDirectory)) 
         { 
         import-module ActiveDirectory 
         }          
-    
         $ADView = Get-ADServerSettings
         If (-Not $ADView.ViewEntireForest)
         {
             Set-ADServerSettings -ViewEntireForest:$True
         }
-    
 }
 Function New-O365Session 
 {
@@ -74,31 +60,30 @@ Function New-O365Session
     Import-Module MSOnline	
     Connect-MsolService	
 }
-#Collect Inputs
+#Collect required Inputs
 Write-host -f cyan "Note: Make sure you have opened Windows PowerShell with Elevated Privileges"
-Write-host -f cyan "Please provide exchange on-premise admin creds"
+Write-host -f cyan "Provide exchange on-premise admin creds"
 $ADCreds = Get-Credential
-$ServerName = Read-Host "Please supply one of the local exchange servers' name"
-$OnpremRcpt = Read-host "One of the on-premise recipients' email"
-$EXORcpt = Read-host "One of the EXO recipients' email address"
-$RemoteRoutingDomain = Read-host "Tenent Remote Routing domain (ex: contoso.mail.onmicrosoft.com)"
-$DirectionOftheIssue = Read-host "In which direction free/busy is NOT working? (OnpremToEXO / EXOToOnprem)"
-
+$serverName = Read-Host "Supply one of the local exchange servers' name"
+$onpremRcpt = Read-host "One of the on-premise recipients' email address"
+$exoRcpt = Read-host "One of the Exchange online recipients' email address"
+$remoteRoutingDomain = Read-host "Tenent Remote Routing domain (ex: contoso.mail.onmicrosoft.com)"
+$directionOftheIssue = Read-host "In which direction free/busy is NOT working? (OnpremToEXO / EXOToOnprem)"
 Writelog -color cyan "Collecting Exchange on-premise Free/Busy configuration"
-Disconnect-ExchangeOnline
+Disconnect-ExchangeOnline -confirm:$false
 New-LocalExchangeSession
 $Error.clear()
-Get-Recipient $OnpremRcpt -ErrorAction SilentlyContinue | Export-Clixml .\$FolderName\OnpremMBX.xml
+Get-Recipient $onpremRcpt -ErrorAction SilentlyContinue | Export-Clixml .\$FolderName\OnpremMBX.xml
 if ($Error)
 {
-    WriteLog -Color Red "Error: Provided on-prem email $OnpremRcpt does not exist in exchange on-prem environment"
+    WriteLog -Color Red "Error: Provided on-prem email $onpremRcpt does not exist in exchange on-prem environment"
     EXIT
 }
 $Error.clear()
-Get-Recipient $EXORcpt -ErrorAction SilentlyContinue | Export-Clixml .\$FolderName\EXORcpt.xml
+Get-Recipient $exoRcpt -ErrorAction SilentlyContinue | Export-Clixml .\$FolderName\EXORcpt.xml
 if ($Error)
 {
-    WriteLog -Color Red "Error: Provided EXO email $EXORcpt does not exist in exchange on-prem environment"
+    WriteLog -Color Red "Error: Provided EXO email $exoRcpt does not exist in exchange on-prem environment"
     EXIT
 }
 Get-ExchangeServer | Export-Clixml C:\temp\ExInfo.xml
@@ -116,13 +101,13 @@ $Error.clear()
 Get-EXORecipient $OnpremRcpt -ErrorAction SilentlyContinue | Export-Clixml .\$FolderName\OnpremRcpt.xml
 if ($Error)
 {
-    WriteLog -Color Red "Error: Provided on-prem email $OnpremRcpt does not exist in exchange Online environment"
+    WriteLog -Color Red "Error: Provided on-prem email $onpremRcpt does not exist in exchange Online environment"
 }
 $Error.clear()
-Get-EXORecipient $EXORcpt -ErrorAction SilentlyContinue | Export-Clixml .\$FolderName\EXOMBX.xml
+Get-EXORecipient $exoRcpt -ErrorAction SilentlyContinue | Export-Clixml .\$FolderName\EXOMBX.xml
 if ($Error)
 {
-    WriteLog -Color Red "Error: Provided EXO email $EXORcpt does not exist in exchange online environment"
+    WriteLog -Color Red "Error: Provided EXO email $exoRcpt does not exist in exchange online environment"
 }
 Get-IntraOrganizationConnector | Export-Clixml .\$FolderName\EXOIOC.xml
 Get-OrganizationRelationship | Export-Clixml .\$FolderName\EXOOR.xml
@@ -131,12 +116,12 @@ Get-MsolServicePrincipalCredential -ServicePrincipalName "00000002-0000-0ff1-ce0
 If($DirectionOftheIssue -eq 'OnpremToEXO')
 {
 #EXO Mailbox healthcheck
-    $EXOMbx = Get-EXOMailbox $EXORcpt
+    $exoMbx = Get-EXOMailbox $exoRcpt
     $emails = $exoMbx.EmailAddresses
     foreach($email in $emails)
     {
         $emailMatch = "No"
-        if($email -like "*$RemoteRoutingDomain*")
+        if($email -like "*$remoteRoutingDomain*")
         {
             $emailMatch = "Yes"
             Break
@@ -144,99 +129,96 @@ If($DirectionOftheIssue -eq 'OnpremToEXO')
     }
         if($emailMatch -like 'No')
         {
-            WriteLog -color Red "Error: EXO Mailbox does not have $RemoteRoutingDomain email address stamped"
+            WriteLog -color Red "Error: EXO Mailbox does not have $remoteRoutingDomain email address stamped"
         }
-    
-
 #EXO Mailbox calendar permission check
-    $EXOAlias = $EXOMbx.Alias
-    $CalFolder = $EXOAlias + ":\Calendar"
-    $EXOMbxCalPerms = Get-MailboxFolderPermission $CalFolder
+    $exoAlias = $exoMbx.Alias
+    $calFolder = $exoAlias + ":\Calendar"
+    $exoMbxCalPerms = Get-MailboxFolderPermission $calFolder
     foreach($perm in $exoMbxCalPerms)
     {
         if($perm.user -like 'Default' -and $perm.accessrights -Notlike 'AvailabilityOnly')
         {
-            WriteLog -Color Yellow "Warning: Please check and confirm that Default Calendar folder permission is at least set to AvailabilityOnly"
+            WriteLog -Color Yellow "Warning: make sure that Default Calendar folder permission is at least set to AvailabilityOnly"
         }
     }
-
     WriteLog -color cyan "Disconnecting existing exchange online session"
-    Disconnect-ExchangeOnline
+    Disconnect-ExchangeOnline -confirm:$false
 
     WriteLog -color cyan "Reconnecting Local Exchange on-prem session"
     New-LocalExchangeSession
 
     WriteLog -color cyan "Checking on-premise free/busy configurations"
-    if((Get-RemoteMailbox $EXORcpt).RemoteRoutingAddress -NotLike '*mail.onmicrosoft.com*')
+    if((Get-RemoteMailbox $exoRcpt).RemoteRoutingAddress -NotLike '*mail.onmicrosoft.com*')
     {
         WriteLog -color Red "Error: EXO Recipient does not have correct Remote Routing Address set"
     }
     
 #IntraOrganization Connector [IOC] configuration check
-    $OnpremIOC = Get-IntraOrganizationConnector | Where-Object {$_.TargetAddressDomains -eq $RemoteRoutingDomain}
-    if($OnpremIOC.Enabled -eq $TRUE)
+    $OnpremIOC = Get-IntraOrganizationConnector | Where-Object {$_.TargetAddressDomains -eq $remoteRoutingDomain}
+    if($onpremIOC.Enabled -eq $TRUE)
     {
         WriteLog -color cyan "IOC is enabled, performing OAUTH checks.."
-        $OAuthResult = Test-OAUTHConnectivity -Service AutoD -TargetUri $OnPremIOC.DiscoveryEndpoint -Mailbox $OnpremRcpt
-        $OAuthResult | Export-Clixml .\$FolderName\OAuthResult.xml
-        if($OAUTHResult.ResultType -Like '*Fail*')
+        $oauthResult = Test-OAUTHConnectivity -Service AutoD -TargetUri $onPremIOC.DiscoveryEndpoint -Mailbox $onpremRcpt
+        $oauthResult | Export-Clixml .\$FolderName\oauthResult.xml
+        if($oauthResult.ResultType -Like '*Fail*')
         {    
             WriteLog -color Red "Error: OAUTH Test failed, please review OAUTHResult.xml for more information"
         }
     }
 
 #Checking OAUTH on Web Services Virtual Directory
-            $WebServices = Get-WebServicesVirtualDirectory
-            foreach($WebService in $WebServices)
+            $webServices = Get-WebServicesVirtualDirectory
+            foreach($webService in $webServices)
             {
-                $OAUTHChk = $WebService.OAuthAuthentication
+                $oauthChk = $WebService.OAuthAuthentication
                 if($OAUTHChk -eq $False)
                 {
-                WriteLog -color Red "Error: OAUTH Authentication is NOT enabled on Server $WebService"
+                WriteLog -color Red "Error: OAUTH Authentication is NOT enabled on Server $webService"
                 }
             }
 #Checking AuthServer Configuration
-            $AuthServer = Get-AuthServer
-            If(!$AuthServer)
+            $authServer = Get-AuthServer
+            If(!$authServer)
             {
                 WriteLog -color Red "Error: No AuthServer was found, please follow URL https://learn.microsoft.com/en-us/exchange/configure-oauth-authentication-between-exchange-and-exchange-online-organizations-exchange-2013-help"            
             }
             else 
             {
-                $AuthServerName = $AuthServer | where-object {$_.Name -like '*ACS*'}
-                if($AuthServerName.count -ge 2)
+                $authServerName = $authServer | where-object {$_.Name -like '*ACS*'}
+                if($authServerName.count -ge 2)
                 {
                     WriteLog -color yellow "Warning: OAUTH is configured with more than 1 tenant, need to make sure DomainName in ACS OAUTH server is configured correctly to get OAUTH token; contact MS Support"
                 }
             }    
             
 #Checking certificate on AuthConfig
-            $AuthConfig = Get-AuthConfig
-            $ConfigCert = $AuthConfig.CurrentCertificateThumbprint
-            $ExCerts = Get-ExchangeCertificate $ConfigCert
-            if($ExCerts.NotAfter -lt (Get-Date))
+            $authConfig = Get-AuthConfig
+            $configCert = $authConfig.CurrentCertificateThumbprint
+            $exCerts = Get-ExchangeCertificate $configCert
+            if($exCerts.NotAfter -lt (Get-Date))
             {
                 Writelog -color Red "Error: Auth Certificate is expired, please recreate Auth Cert"
             }
-            $MSOLCertInfo = Get-MsolServicePrincipalCredential -ServicePrincipalName "00000002-0000-0ff1-ce00-000000000000" -ReturnKeyValues $true
-            if($ExCerts.NotAfter.date -ne $MSOLCertInfo.EndDate.date)
+            $msolCertInfo = Get-MsolServicePrincipalCredential -ServicePrincipalName "00000002-0000-0ff1-ce00-000000000000" -ReturnKeyValues $true
+            if($exCerts.NotAfter.date -ne $msolCertInfo.EndDate.date)
             {
                 WriteLog -color Red "Error: MSOL certificate is NOT matching with on-premise certificate, reconfigure OAUTH manually or re-run HCW"
             }
-    if($OnpremIOC.Enabled -eq $False)
+    if($onpremIOC.Enabled -eq $False)
     {
         WriteLog -color cyan "Checking OrganizationRelationship [OR] configuration"
-        $OnpremOR = Get-OrganizationRelationship | Where-Object {$_.DomainNames -eq $RemoteRoutingDomain}
-        if($OnpremOR.Enabled -eq $False)
+        $onpremOR = Get-OrganizationRelationship | Where-Object {$_.DomainNames -eq $remoteRoutingDomain}
+        if($onpremOR.Enabled -eq $False)
         {
             WriteLog -color Red "Error: OrganizationRelationship is disabled. As IOC is also disabled for the RemoteDomain, please make sure to enable OrganizationRelationship to make Free/Busy working"
         }
-        if($OnpremOR.Enabled -eq $TRUE)
+        if($onpremOR.Enabled -eq $TRUE)
         {
-            if($OnpremOR.FreeBusyAccessEnabled -eq $False -or $NULL -eq $OnpremOR.FreeBusyAccessLevel -or $OnPremOR.TargetApplicationUri -NotLike '*Outlook.com*' -or $NULL -eq $OnPremOR.TargetAutodiscoverEpr)
+            if($onpremOR.FreeBusyAccessEnabled -eq $False -or $NULL -eq $onpremOR.FreeBusyAccessLevel -or $onPremOR.TargetApplicationUri -NotLike '*Outlook.com*' -or $NULL -eq $onPremOR.TargetAutodiscoverEpr)
             {
                 WriteLog -color Red "Error: OrganizationRelationship configuration is Not configured correctly"
-                $OnPremOR | Format-list FreeBusyAccessEnabled,FreeBusyAccessLevel,TargetApplicationUri,TargetAutodiscoverEpr
+                $onPremOR | Format-list FreeBusyAccessEnabled,FreeBusyAccessLevel,TargetApplicationUri,TargetAutodiscoverEpr
                 
                 write-host -f cyan "Please make sure above Output is matching with the Sample output below:
                 FreeBusyAccessEnabled : True
@@ -249,15 +231,15 @@ If($DirectionOftheIssue -eq 'OnpremToEXO')
     }
 }
 
-If($DirectionOftheIssue -eq 'EXOToOnprem')
+If($directionOftheIssue -eq 'EXOToOnprem')
 {
-    $OnpremAppURI = (Get-FederationTrust).ApplicationURI
+    $onpremAppURI = (Get-FederationTrust).ApplicationURI
 #Onprem Mailbox calendar permission check
-    $OnpremMBX = Get-Mailbox $OnpremRcpt
-    $OnpremAlias = $OnpremMbx.Alias
-    $CalFolder = $OnpremAlias + ":\Calendar"
-    $OnpremMbxCalPerms = Get-MailboxFolderPermission $CalFolder
-    foreach($perm in $OnpremMbxCalPerms)
+    $onpremMBX = Get-Mailbox $onpremRcpt
+    $onpremAlias = $onpremMbx.Alias
+    $calFolder = $onpremAlias + ":\Calendar"
+    $onpremMbxCalPerms = Get-MailboxFolderPermission $calFolder
+    foreach($perm in $onpremMbxCalPerms)
     {
         if($perm.user -like 'Default' -and $perm.accessrights -Notlike 'AvailabilityOnly')
         {
@@ -266,54 +248,54 @@ If($DirectionOftheIssue -eq 'EXOToOnprem')
     }
     New-O365Session
 #Checking Onprem MBX existence in EXO
-    if(!(Get-Recipient $OnpremRcpt))
+    if(!(Get-Recipient $onpremRcpt))
     {
         Writelog -color -Red "Error: Onprem email address does not exist in EXO, please make sure the object is in sync"
         EXIT
     }
 #IntraOrganization Connector [IOC] configuration check
-    $PrimaryDomain = $OnpremRcpt.split('@')[1]
-    $EXOIOC = Get-IntraOrganizationConnector | Where-Object {$_.TargetAddressDomains -eq $PrimaryDomain}
-    if($EXOIOC.DiscoveryEndpoint -like '*msappproxy*')
+    $primaryDomain = $onpremRcpt.split('@')[1]
+    $exoIOC = Get-IntraOrganizationConnector | Where-Object {$_.TargetAddressDomains -eq $PrimaryDomain}
+    if($exoIOC.DiscoveryEndpoint -like '*msappproxy*')
     {
         Writelog -color cyan "Hybrid Modern is configured with Hybrid Agent."
         Writelog -color cyan "Make sure External URL set on the Hybrid Agent configuration, is accessiable. Review article https://learn.microsoft.com/en-us/exchange/hybrid-deployment/hybrid-agent for more info on Hybrid Agent"
     }
-    if($EXOIOC.Enabled -eq $TRUE)
+    if($exoIOC.Enabled -eq $TRUE)
     {
         WriteLog -color cyan "IOC is enabled, performing OAUTH checks.."
-        $OAuthResult = Test-OAUTHConnectivity -Service AutoD -TargetUri $EXOIOC.DiscoveryEndpoint -Mailbox $EXORcpt
-        $OAuthResult | Export-Clixml .\$FolderName\EXO_OAuthResult.xml
-        if($OAUTHResult.ResultType -Like '*Fail*')
+        $oauthResult = Test-OAUTHConnectivity -Service AutoD -TargetUri $exoIOC.DiscoveryEndpoint -Mailbox $exoRcpt
+        $oauthResult | Export-Clixml .\$FolderName\EXO_OAuthResult.xml
+        if($oauthResult.ResultType -Like '*Fail*')
         {    
             WriteLog -color Red "Error: EXO OAUTH Test failed, please review EXO_OAUTHResult.xml for more information"
         }
     }        
-    if($EXOIOC.Enabled -eq $False)
+    if($exoIOC.Enabled -eq $False)
     {
         WriteLog -color cyan "Checking OrganizationRelationship [OR] configuration"
-        $EXOOR = Get-OrganizationRelationship | Where-Object {$_.DomainNames -eq $PrimaryDomain}
-        if($EXOOR.Enabled -eq $False)
+        $exoOR = Get-OrganizationRelationship | Where-Object {$_.DomainNames -eq $primaryDomain}
+        if($exoOR.Enabled -eq $False)
         {
             WriteLog -color Red "Error: OrganizationRelationship is disabled. As IOC is also disabled for the RemoteDomain, please make sure to enable OrganizationRelationship to make Free/Busy working"
         }
-        if($EXOOR.Enabled -eq $TRUE)
+        if($exoOR.Enabled -eq $TRUE)
         {
-            if($EXOOR.TargetAutodiscoverEpr -like '*MSAppProxy*')
+            if($exoOR.TargetAutodiscoverEpr -like '*MSAppProxy*')
             {
                 Writelog -color cyan "Hybrid Modern is configured with Hybrid Agent."
                 Writelog -color cyan "Make sure External URL set on the Hybrid Agent configuration, is accessiable. Review article https://learn.microsoft.com/en-us/exchange/hybrid-deployment/hybrid-agent for more info on Hybrid Agent"
     
             }
-            if($EXOOR.FreeBusyAccessEnabled -eq $False -or $NULL -eq $EXOOR.FreeBusyAccessLevel -or $NULL -eq $EXOOR.TargetApplicationUri -or $NULL -eq $OnPremOR.TargetAutodiscoverEpr)
+            if($exoOR.FreeBusyAccessEnabled -eq $False -or $NULL -eq $exoOR.FreeBusyAccessLevel -or $exoOR.TargetApplicationUri -notlike $onpremAppURI -or $NULL -eq $exoOR.TargetAutodiscoverEpr)
             {
                 WriteLog -color Red "Error: OrganizationRelationship configuration is Not configured correctly"
-                $EXOOR | Format-list FreeBusyAccessEnabled,FreeBusyAccessLevel,TargetApplicationUri,TargetAutodiscoverEpr
+                $exoOR | Format-list FreeBusyAccessEnabled,FreeBusyAccessLevel,TargetApplicationUri,TargetAutodiscoverEpr
                 
                 write-host -f cyan "Please make sure above Output is matching with the Sample output below:
                 FreeBusyAccessEnabled : True
                 FreeBusyAccessLevel   : LimitedDetails
-                TargetApplicationUri  : $OnpremAppURI
+                TargetApplicationUri  : $onpremAppURI
                 TargetAutodiscoverEpr : https://autodiscover.contoso.com/autodiscover/autodiscover.svc"
                 
             }
