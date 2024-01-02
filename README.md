@@ -5,6 +5,7 @@
   * Organization Relationship configuration 
   * Hybrid Agent configuration 
   * OAUTH configuration
+  * IIS logs search for cross forest hit count
 ## Execution Requirements:
   * Windows PowerShell with Elevated Privileges
   * Exchange Onpremise Admin account
