@@ -23,18 +23,14 @@ Function WriteLog
 # Setup a new O365 Powershell Session
 Function New-LocalExchangeSession 
 {
-    $Error.Clear()
     $ADExchangeURL = "http://$ServerName/PowerShell"
     $session = New-PSSession -ConfigurationName Microsoft.Exchange -ConnectionUri $ADExchangeURL -Authentication kerberos -Credential $ADCreds -Name "Local.Exchange"
     Import-PSSession $session -AllowClobber -ErrorAction SilentlyContinue
-    if($Error)
-    {
         if (!(get-pssession | Where-Object { $_.Name -match "Local.Exchange"}))
         {
             WriteLog -color Red "Error: Local Exchange Server session was unsuccessful, plese make sure provided creds or server name are accurate"
             EXIT
         }
-    }
     Write-verbose "Testing for Active Directory PowerShell module"
         if (!(get-module ActiveDirectory)) 
         { 
@@ -45,6 +41,19 @@ Function New-LocalExchangeSession
         {
             Set-ADServerSettings -ViewEntireForest:$True
         }
+}
+Function IISLogSearch
+{ 
+        foreach($iisServer in $iisServers)
+        {
+            $searchString = invoke-command -ComputerName $iisServer.fqdn -ScriptBlock{$fileDate = Get-date -Format yyMMdd;$currentFile = "u_ex"+$fileDate+".log";Select-String -Path C:\inetpub\logs\LogFiles\W3SVC1\$currentFile -Pattern 'ASProxy/CrossForest'}
+                [PSCustomObject]@{
+                    'Server' = $iisServer
+                    'IIS Hit Count' = $searchString.count
+                }
+        }
+        writelog -color yellow 'IIS log search results'
+        $iisSearchResults
 }
 Function New-O365Session 
 {
@@ -69,23 +78,25 @@ $onpremRcpt = Read-host "One of the on-premise recipients' email address"
 $exoRcpt = Read-host "One of the Exchange online recipients' email address"
 $remoteRoutingDomain = Read-host "Tenent Remote Routing domain (ex: contoso.mail.onmicrosoft.com)"
 $directionOftheIssue = Read-host "In which direction free/busy is NOT working? (OnpremToEXO / EXOToOnprem)"
+if($serverName -eq "" -or $onpremRcpt -eq "" -or $exoRcpt -eq "" -or $remoteRoutingDomain -eq "" -or $directionOftheIssue -eq "")
+{
+    writelog -color red "Error: Make sure to provide all the required inputs before proceeding, existing!"
+    EXIT
+}
 Writelog -color cyan "Collecting Exchange on-premise Free/Busy configuration"
-Disconnect-ExchangeOnline -confirm:$false
 New-LocalExchangeSession
-$Error.clear()
-Get-Recipient $onpremRcpt -ErrorAction SilentlyContinue | Export-Clixml .\$FolderName\OnpremMBX.xml
-if ($Error)
+if (!(Get-Recipient $onpremRcpt))
 {
     WriteLog -Color Red "Error: Provided on-prem email $onpremRcpt does not exist in exchange on-prem environment"
     EXIT
 }
-$Error.clear()
-Get-Recipient $exoRcpt -ErrorAction SilentlyContinue | Export-Clixml .\$FolderName\EXORcpt.xml
-if ($Error)
+Get-Recipient $onpremRcpt -ErrorAction SilentlyContinue | Export-Clixml .\$FolderName\OnpremMBX.xml
+if (!(Get-Recipient $exoRcpt))
 {
     WriteLog -Color Red "Error: Provided EXO email $exoRcpt does not exist in exchange on-prem environment"
     EXIT
 }
+Get-Recipient $exoRcpt -ErrorAction SilentlyContinue | Export-Clixml .\$FolderName\EXORcpt.xml
 Get-ExchangeServer | Export-Clixml C:\temp\ExInfo.xml
 Get-IntraOrganizationConnector | Export-Clixml .\$FolderName\OnPremIOC.xml
 Get-OrganizationRelationship | Export-Clixml .\$FolderName\OnPremOR.xml
@@ -97,18 +108,18 @@ Get-FederationTrust | Export-Clixml .\$FolderName\FederationTrust.xml
 
 Writelog -color cyan "Collecting Exchange Online Free/Busy Configuration"
 New-O365Session
-$Error.clear()
-Get-EXORecipient $OnpremRcpt -ErrorAction SilentlyContinue | Export-Clixml .\$FolderName\OnpremRcpt.xml
-if ($Error)
+if (!(Get-EXORecipient $onpremRcpt))
 {
     WriteLog -Color Red "Error: Provided on-prem email $onpremRcpt does not exist in exchange Online environment"
+    EXIT
 }
-$Error.clear()
-Get-EXORecipient $exoRcpt -ErrorAction SilentlyContinue | Export-Clixml .\$FolderName\EXOMBX.xml
-if ($Error)
+Get-EXORecipient $onpremRcpt -ErrorAction SilentlyContinue | Export-Clixml .\$FolderName\OnpremRcpt.xml
+if (!(Get-EXORecipient $exoRcpt))
 {
     WriteLog -Color Red "Error: Provided EXO email $exoRcpt does not exist in exchange online environment"
+    EXIT
 }
+Get-EXORecipient $exoRcpt -ErrorAction SilentlyContinue | Export-Clixml .\$FolderName\EXOMBX.xml
 Get-IntraOrganizationConnector | Export-Clixml .\$FolderName\EXOIOC.xml
 Get-OrganizationRelationship | Export-Clixml .\$FolderName\EXOOR.xml
 Get-MsolServicePrincipalCredential -ServicePrincipalName "00000002-0000-0ff1-ce00-000000000000" -ReturnKeyValues $true | Export-Clixml .\$FolderName\MSOLPrincipalCreds.xml
@@ -116,7 +127,7 @@ Get-MsolServicePrincipalCredential -ServicePrincipalName "00000002-0000-0ff1-ce0
 If($DirectionOftheIssue -eq 'OnpremToEXO')
 {
 #EXO Mailbox healthcheck
-    $exoMbx = Get-EXOMailbox $exoRcpt
+    $exoMbx = Get-EXOMailbox $exoRcpt -ErrorAction SilentlyContinue
     $emails = $exoMbx.EmailAddresses
     foreach($email in $emails)
     {
@@ -304,6 +315,20 @@ If($directionOftheIssue -eq 'EXOToOnprem')
                 
             }
         }
+    }
+#Searching IIS logs to confirm if free/busy requesting from EXO, is reaching to Exchange onpremise or not
+WriteLog -color cyan "Searching IIS logs to check EXO connectivity with Exchange onpremis environment"
+$iisSearchCriteria = Read-host "Do you want to search all exchange onpremises' servers? (Yes/No)"
+
+    if($iisSearchCriteria -like 'Yes')
+    {
+        $iisServers = Get-ExchangeServer | Where-Object {$_.ServerRole -NotLike '*Edge*'}
+        IISLogSearch
+    }
+    if($iisSearchCriteria -like 'No')
+    {
+        $iisServers = Read-host "Proivde the list of Hybrid Exchange Servers"
+        IISLogSearch
     }
 }
 
